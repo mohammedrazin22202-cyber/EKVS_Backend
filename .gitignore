@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+food_decider.db
+.venv/
+env/
+venv/
