@@ -187,6 +187,34 @@ def suggest(req: SuggestRequest):
     return {"suggestions": results}
 
 
+@app.post("/api/suggest/upgrade")
+def suggest_upgrade(req: SuggestRequest):
+    max_upgrade_budget = req.budget + max(50.0, req.budget * 0.25)
+    results = generate_suggestions(
+        budget=max_upgrade_budget,
+        people=req.people,
+        preference=req.preference,
+        additional_info=req.additional_info,
+        area=req.area,
+        variety=req.variety if req.variety is not None else 1,
+        who=req.who or "",
+        count=40,
+        concurrency_control=req.concurrency_control,
+    )
+    upgrade_candidates = [c for c in results if c["expected_amount"] > req.budget]
+    if not upgrade_candidates:
+        raise HTTPException(404, "No upgrade suggestions found within a small top-up amount.")
+    
+    best_upgrade = upgrade_candidates[0]
+    extra_needed = round(best_upgrade["expected_amount"] - req.budget, 2)
+    return {
+        "upgrade": best_upgrade,
+        "current_budget": req.budget,
+        "extra_needed": extra_needed,
+        "new_budget": best_upgrade["expected_amount"]
+    }
+
+
 # ---------------------------------------------------------------------------
 # History
 # ---------------------------------------------------------------------------
@@ -367,13 +395,15 @@ def vote_poll(code: str, req: VoteRequest):
     if req.candidate_id not in poll["votes"]:
         raise HTTPException(400, "Invalid candidate choice")
 
-    mdb.polls.update_one(
-        {"_id": code},
+    result = mdb.polls.update_one(
+        {"_id": code, "active": True},
         {
             "$inc": {f"votes.{req.candidate_id}": 1},
             "$push": {"voted_users": req.who}
         }
     )
+    if result.matched_count == 0:
+        raise HTTPException(400, "This poll is already closed!")
     return {"status": "voted"}
 
 

@@ -40,7 +40,7 @@ def get_mongo_db():
     if _mongo_client is None:
         try:
             from pymongo import MongoClient
-            _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=4000)
+            _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2500)
             _mongo_client.admin.command("ping")
             _mongo_ok = True
         except Exception:
@@ -60,9 +60,10 @@ def new_id():
 
 @contextmanager
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA foreign_keys = ON;")
     try:
         yield conn
         conn.commit()
@@ -159,13 +160,8 @@ def push_unsynced(collection_name: str, table: str):
         for row in rows:
             doc = dict(row)
             doc["_id"] = doc["id"]
-            if "deleted" in doc and doc["deleted"] == 1 and table == "history":
-                # For history, if it is deleted, hard-delete it from Mongo so the cluster stays clean
-                mdb[collection_name].delete_one({"_id": doc["id"]})
-                conn.execute(f"DELETE FROM {table} WHERE id = ?", (row["id"],))
-            else:
-                mdb[collection_name].replace_one({"_id": doc["id"]}, doc, upsert=True)
-                conn.execute(f"UPDATE {table} SET synced = 1 WHERE id = ?", (row["id"],))
+            mdb[collection_name].replace_one({"_id": doc["id"]}, doc, upsert=True)
+            conn.execute(f"UPDATE {table} SET synced = 1 WHERE id = ?", (row["id"],))
             pushed += 1
     return {"pushed": pushed, "mongo_available": True}
 
@@ -253,23 +249,12 @@ def try_push_single(collection_name: str, table: str, row_id: str):
     with get_conn() as conn:
         row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
         if not row:
-            # If the row is deleted locally and it is a history entry, make sure it is hard-deleted in Mongo too
-            if table == "history":
-                try:
-                    mdb[collection_name].delete_one({"_id": row_id})
-                    return True
-                except Exception:
-                    return False
             return False
         doc = dict(row)
         doc["_id"] = doc["id"]
         try:
-            if "deleted" in doc and doc["deleted"] == 1 and table == "history":
-                mdb[collection_name].delete_one({"_id": doc["id"]})
-                conn.execute(f"DELETE FROM {table} WHERE id = ?", (row_id,))
-            else:
-                mdb[collection_name].replace_one({"_id": doc["id"]}, doc, upsert=True)
-                conn.execute(f"UPDATE {table} SET synced = 1 WHERE id = ?", (row_id,))
+            mdb[collection_name].replace_one({"_id": doc["id"]}, doc, upsert=True)
+            conn.execute(f"UPDATE {table} SET synced = 1 WHERE id = ?", (row_id,))
             return True
         except Exception:
             return False

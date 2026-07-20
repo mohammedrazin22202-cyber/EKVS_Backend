@@ -82,11 +82,13 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
 
     place_items = defaultdict(list)
     for row in rows:
-        if area and row["area"].lower() != area.lower():
+        row_area = (row["area"] or "").strip().lower()
+        if area and row_area != area.strip().lower():
             continue
         place_items[row["place_id"]].append(dict(row))
 
-    is_specific_snack_or_dessert = preference in ["dessert", "sweet", "snack", "light", "street food", "drink", "beverage"]
+    pref_lower = (preference or "").strip().lower()
+    is_specific_snack_or_dessert = pref_lower in ["dessert", "sweet", "snack", "light", "street food", "drink", "beverage"]
 
     candidates = []
     for place_id, items in place_items.items():
@@ -96,9 +98,14 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
         items_by_id = {it["item_id"]: it for it in items}
         items = sorted(items, key=lambda x: x["price"])
         
-        combos = list(itertools.combinations_with_replacement(items, people))
-        if len(combos) > 60:
-            combos = combos[:60]
+        combos = []
+        max_size = min(len(items), max(people + 2, 3))
+        for size in range(1, max_size + 1):
+            combos.extend(list(itertools.combinations_with_replacement(items, size)))
+
+        if len(combos) > 120:
+            step = max(1, len(combos) // 120)
+            combos = combos[::step][:120]
 
         for combo in combos:
             # Option B: Bundle mandatory paired items
@@ -145,7 +152,7 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
             ]).lower()
 
             # Preference match
-            if preference and preference in haystack:
+            if pref_lower and pref_lower in haystack:
                 score += 35
 
             # Keyword bonus
@@ -176,8 +183,8 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
                             max_penalty = max(max_penalty, 15 * penalty_multiplier)
             score -= max_penalty
 
-            # Jitter
-            score += random.uniform(-8, 8)
+            # Score randomization (+-15 points) for dynamic non-repetitive suggestions
+            score += random.uniform(-15.0, 15.0)
 
             candidates.append({
                 "place_id": place_id,
@@ -190,6 +197,8 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
                 "score": score,
             })
 
+    # Shuffle candidates to vary results across searches
+    random.shuffle(candidates)
     candidates.sort(key=lambda c: c["score"], reverse=True)
 
     # Diversify places
