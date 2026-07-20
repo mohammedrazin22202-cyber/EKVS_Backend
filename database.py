@@ -99,6 +99,8 @@ def init_db():
                 synced INTEGER DEFAULT 0,
                 deleted INTEGER DEFAULT 0,
                 rating INTEGER DEFAULT 0,
+                meal_role TEXT DEFAULT 'main',
+                paired_item_id TEXT DEFAULT '',
                 FOREIGN KEY (place_id) REFERENCES places(id)
             );
 
@@ -130,6 +132,14 @@ def init_db():
             pass  # column already exists
         try:
             conn.execute("ALTER TABLE history ADD COLUMN budget REAL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN meal_role TEXT DEFAULT 'main'")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE items ADD COLUMN paired_item_id TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass  # column already exists
 
@@ -199,15 +209,17 @@ def pull_all():
             if not existing or (item.get("updated_at", "") >= existing["updated_at"]):
                 conn.execute(
                     """INSERT INTO items (id, place_id, name, price, category, tags,
-                       created_at, updated_at, synced, deleted, rating)
-                       VALUES (?,?,?,?,?,?,?,?,1,?,?)
+                       created_at, updated_at, synced, deleted, rating, meal_role, paired_item_id)
+                       VALUES (?,?,?,?,?,?,?,?,1,?,?,?,?)
                        ON CONFLICT(id) DO UPDATE SET
                        place_id=excluded.place_id, name=excluded.name, price=excluded.price,
                        category=excluded.category, tags=excluded.tags,
-                       updated_at=excluded.updated_at, synced=1, deleted=excluded.deleted, rating=excluded.rating""",
+                       updated_at=excluded.updated_at, synced=1, deleted=excluded.deleted, rating=excluded.rating,
+                       meal_role=excluded.meal_role, paired_item_id=excluded.paired_item_id""",
                     (item["id"], item.get("place_id"), item.get("name"), item.get("price"),
                      item.get("category"), item.get("tags"), item.get("created_at"),
-                     item.get("updated_at"), item.get("deleted", 0), item.get("rating", 0)),
+                     item.get("updated_at"), item.get("deleted", 0), item.get("rating", 0),
+                     item.get("meal_role", "main"), item.get("paired_item_id", "")),
                 )
                 pulled += 1
 

@@ -126,9 +126,9 @@ def add_item(place_id: str, item: ItemIn):
     ts = db.now_iso()
     with db.get_conn() as conn:
         conn.execute(
-            """INSERT INTO items (id, place_id, name, price, category, tags, created_at, updated_at, synced, deleted)
-               VALUES (?,?,?,?,?,?,?,?,0,0)""",
-            (iid, place_id, item.name, item.price, item.category, item.tags, ts, ts),
+            """INSERT INTO items (id, place_id, name, price, category, tags, created_at, updated_at, synced, deleted, meal_role, paired_item_id)
+               VALUES (?,?,?,?,?,?,?,?,0,0,?,?)""",
+            (iid, place_id, item.name, item.price, item.category, item.tags, ts, ts, item.meal_role or "main", item.paired_item_id or ""),
         )
     db.try_push_single("items", "items", iid)
     return {"id": iid, "status": "created"}

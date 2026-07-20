@@ -68,6 +68,7 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
             """
             SELECT items.id as item_id, items.name as item_name, items.price as price,
                    items.category as category, items.tags as tags, items.rating as rating,
+                   items.meal_role as meal_role, items.paired_item_id as paired_item_id,
                    places.id as place_id, places.name as place_name, places.area as area,
                    places.cuisine as cuisine, places.notes as place_notes
             FROM items
@@ -85,34 +86,51 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
             continue
         place_items[row["place_id"]].append(dict(row))
 
+    is_specific_snack_or_dessert = preference in ["dessert", "sweet", "snack", "light", "street food", "drink", "beverage"]
+
     candidates = []
     for place_id, items in place_items.items():
         if concurrency_control and place_id in recently_eaten_places:
             continue
-        # Sort items by price to keep cheaper items first in combination ordering
+        
+        items_by_id = {it["item_id"]: it for it in items}
         items = sorted(items, key=lambda x: x["price"])
         
-        # Generate combinations with replacement of size 'people'
         combos = list(itertools.combinations_with_replacement(items, people))
-        # Cap combos to prevent large combinatorics
         if len(combos) > 60:
             combos = combos[:60]
 
         for combo in combos:
-            expected_amount = sum(it["price"] for it in combo)
+            # Option B: Bundle mandatory paired items
+            final_bundle = list(combo)
+            bundle_item_ids = set(it["item_id"] for it in final_bundle)
+            
+            for it in combo:
+                paired_id = it.get("paired_item_id")
+                if paired_id and paired_id in items_by_id and paired_id not in bundle_item_ids:
+                    final_bundle.append(items_by_id[paired_id])
+                    bundle_item_ids.add(paired_id)
+
+            # Problem A: Standard meal must contain at least 1 Main Course
+            if not is_specific_snack_or_dessert:
+                has_main = any(it.get("meal_role", "main") == "main" for it in final_bundle)
+                if not has_main:
+                    continue
+
+            expected_amount = sum(it["price"] for it in final_bundle)
             if expected_amount > budget:
                 continue
 
-            combo_item_ids = ",".join(it["item_id"] for it in combo)
+            combo_item_ids = ",".join(it["item_id"] for it in final_bundle)
 
-            # Format combined name, e.g. "2x Chicken Puff + 1x Falooda"
-            item_names = [it["item_name"] for it in combo]
+            # Format combined name
+            item_names = [it["item_name"] for it in final_bundle]
             counts = Counter(item_names)
             combo_item_name = " + ".join(f"{count}x {name}" if count > 1 else name for name, count in counts.items())
 
-            avg_rating = sum(it.get("rating", 0) for it in combo) / len(combo)
-            categories = " ".join(set(it["category"] or "" for it in combo))
-            tags = " ".join(set(it["tags"] or "" for it in combo))
+            avg_rating = sum(it.get("rating", 0) for it in final_bundle) / len(final_bundle)
+            categories = " ".join(set(it["category"] or "" for it in final_bundle))
+            tags = " ".join(set(it["tags"] or "" for it in final_bundle))
 
             first_item = combo[0]
             place_name = first_item["place_name"]

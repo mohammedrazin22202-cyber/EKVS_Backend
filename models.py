@@ -23,6 +23,8 @@ class ItemIn(BaseModel):
     price: float
     category: Optional[str] = ""      # e.g. "veg", "non-veg", "dessert", "drink"
     tags: Optional[str] = ""          # free-text comma separated, e.g. "spicy,rice,south indian"
+    meal_role: Optional[str] = "main" # "main", "snack", "side", "dessert", "beverage"
+    paired_item_id: Optional[str] = ""
 
 
 class ItemUpdate(BaseModel):
@@ -31,6 +33,8 @@ class ItemUpdate(BaseModel):
     category: Optional[str] = None
     tags: Optional[str] = None
     rating: Optional[int] = None
+    meal_role: Optional[str] = None
+    paired_item_id: Optional[str] = None
 
 
 class SuggestRequest(BaseModel):
