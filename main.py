@@ -1,8 +1,10 @@
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 import random
 import database as db
@@ -32,13 +34,14 @@ def startup_pull():
         pass
 
 
-@app.get("/")
-def root():
+@app.get("/api/health")
+def api_health():
     return {
         "status": "online",
         "service": "EKVS Food Decider API",
         "docs": "/docs"
     }
+
 
 
 # ---------------------------------------------------------------------------
@@ -437,3 +440,10 @@ def close_poll(code: str):
         {"$set": {"active": False, "winner": winner_cand}}
     )
     return {"status": "closed", "winner": winner_cand}
+
+
+# Mount frontend static files at root /
+frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
+if os.path.exists(frontend_dir):
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+
