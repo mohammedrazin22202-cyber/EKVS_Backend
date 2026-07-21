@@ -214,21 +214,28 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
                 "score": score,
             })
 
-    # Sort all candidates by randomized score descending
-    candidates.sort(key=lambda c: c["score"], reverse=True)
-
-    # Diversify places: pick best randomized candidate per place first
-    seen_places = set()
-    diversified = []
-    leftovers = []
+    # Group candidates by place_id
+    from collections import defaultdict
+    by_place = defaultdict(list)
     for c in candidates:
-        if c["place_id"] not in seen_places:
-            diversified.append(c)
-            seen_places.add(c["place_id"])
-        else:
-            leftovers.append(c)
+        by_place[c["place_id"]].append(c)
 
-    final_candidates = diversified + leftovers
+    # Sort places by their best randomized combo score
+    sorted_place_ids = sorted(by_place.keys(), key=lambda pid: by_place[pid][0]["score"], reverse=True)
+
+    # Interleave up to 5 top randomized combo candidates per place
+    final_candidates = []
+    # Round 0: Best combo for every place
+    for pid in sorted_place_ids:
+        if by_place[pid]:
+            final_candidates.append(by_place[pid][0])
+
+    # Rounds 1..4: Alternative meal combos per place
+    for round_num in range(1, 5):
+        for pid in sorted_place_ids:
+            if len(by_place[pid]) > round_num:
+                final_candidates.append(by_place[pid][round_num])
 
     return final_candidates[:count]
+
 
