@@ -2,10 +2,17 @@
 Suggestion engine: given budget, people, preference and free-text notes,
 scores every (place, item) combo and returns the top N as "prizes".
 """
+import math
 import random
 from datetime import datetime, timedelta, timezone
 
 from database import get_conn
+
+
+def _gumbel_noise() -> float:
+    """Generate a Gumbel(0, 1) noise sample for Gumbel-Top-K randomized sampling."""
+    u = random.uniform(1e-10, 1.0 - 1e-10)
+    return -math.log(-math.log(u))
 
 
 def _recent_eaten_map(days=30, who=""):
@@ -145,7 +152,7 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
             cuisine = first_item["cuisine"]
             place_notes = first_item["place_notes"]
 
-            score = 100.0
+            base_score = 100.0
             haystack = " ".join([
                 combo_item_name, categories, tags,
                 place_name or "", cuisine or "", area_val or "", place_notes or "",
@@ -153,19 +160,19 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
 
             # Preference match
             if pref_lower and pref_lower in haystack:
-                score += 35
+                base_score += 35
 
             # Keyword bonus
             for kw in keywords:
                 if kw in haystack:
-                    score += 12
+                    base_score += 12
 
             # Budget efficiency
             utilization = expected_amount / budget
-            score += utilization * 15
+            base_score += utilization * 15
 
             # Rating bonus (8 points per average rating star, max 40)
-            score += avg_rating * 8
+            base_score += avg_rating * 8
 
             # Recency penalties: evaluate each unique item in the combo
             max_penalty = 0
@@ -181,10 +188,20 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
                             max_penalty = max(max_penalty, 35 * penalty_multiplier)
                         else:
                             max_penalty = max(max_penalty, 15 * penalty_multiplier)
-            score -= max_penalty
+            base_score -= max_penalty
 
-            # Score randomization (+-15 points) for dynamic non-repetitive suggestions
-            score += random.uniform(-15.0, 15.0)
+            # Noise scale based on Adventurous level (variety)
+            # 0 (Safe): scale 12.0 - top matches favored, light randomization
+            # 1 (Medium/Default): scale 35.0 - strong dynamic randomization across fitting places
+            # 2 (Wild): scale 70.0 - maximum wild randomization
+            if variety == 0:
+                noise_scale = 12.0
+            elif variety == 2:
+                noise_scale = 70.0
+            else:
+                noise_scale = 35.0
+
+            score = base_score + _gumbel_noise() * noise_scale
 
             candidates.append({
                 "place_id": place_id,
@@ -197,11 +214,10 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
                 "score": score,
             })
 
-    # Shuffle candidates to vary results across searches
-    random.shuffle(candidates)
+    # Sort all candidates by randomized score descending
     candidates.sort(key=lambda c: c["score"], reverse=True)
 
-    # Diversify places
+    # Diversify places: pick best randomized candidate per place first
     seen_places = set()
     diversified = []
     leftovers = []
@@ -211,10 +227,8 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
             seen_places.add(c["place_id"])
         else:
             leftovers.append(c)
-        if len(diversified) >= count:
-            break
 
-    if len(diversified) < count:
-        diversified.extend(leftovers[: count - len(diversified)])
+    final_candidates = diversified + leftovers
 
-    return diversified[:count]
+    return final_candidates[:count]
+
