@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 import random
 import database as db
-from models import PlaceIn, PlaceUpdate, ItemIn, ItemUpdate, SuggestRequest, HistoryIn, PollCreateRequest, VoteRequest
+from models import PlaceIn, PlaceUpdate, ItemIn, ItemUpdate, SuggestRequest, HistoryIn, PollCreateRequest, VoteRequest, WriteInRequest
 from suggest import generate_suggestions
 
 app = FastAPI(title="EKVS Food Decider API")
@@ -184,6 +184,7 @@ def suggest(req: SuggestRequest):
         who=req.who or "",
         count=req.count,
         concurrency_control=req.concurrency_control,
+        dislikes=req.dislikes or "",
     )
     if not results:
         raise HTTPException(404, "Nothing fits that budget for that many people. Try raising the budget.")
@@ -203,6 +204,7 @@ def suggest_upgrade(req: SuggestRequest):
         who=req.who or "",
         count=40,
         concurrency_control=req.concurrency_control,
+        dislikes=req.dislikes or "",
     )
     upgrade_candidates = [c for c in results if c["expected_amount"] > req.budget]
     if not upgrade_candidates:
@@ -344,6 +346,7 @@ def create_poll(req: PollCreateRequest):
         who="",
         count=3,
         concurrency_control=req.concurrency_control,
+        dislikes=req.dislikes or "",
     )
     if not candidates:
         raise HTTPException(404, "No menu items fit this budget to generate poll candidates.")
@@ -408,6 +411,40 @@ def vote_poll(code: str, req: VoteRequest):
     if result.matched_count == 0:
         raise HTTPException(400, "This poll is already closed!")
     return {"status": "voted"}
+
+
+@app.post("/api/polls/{code}/write_in")
+def write_in_poll(code: str, req: WriteInRequest):
+    mdb = db.get_mongo_db()
+    if mdb is None:
+        raise HTTPException(400, "Mongo offline")
+    poll = mdb.polls.find_one({"_id": code})
+    if not poll:
+        raise HTTPException(404, "Poll room not found")
+    if not poll.get("active", True):
+        raise HTTPException(400, "This poll is already closed!")
+
+    cand_id = f"writein_{db.new_id()}"
+    price_per_person = round(req.price / req.people, 2)
+    new_cand = {
+        "id": cand_id,
+        "place_id": req.place_id,
+        "place_name": req.place_name,
+        "item_id": req.item_id,
+        "item_name": f"{req.item_name} (Suggested by {req.who})",
+        "price_per_person": price_per_person,
+        "expected_amount": req.price,
+        "score": 100.0
+    }
+
+    mdb.polls.update_one(
+        {"_id": code, "active": True},
+        {
+            "$push": {"candidates": new_cand},
+            "$set": {f"votes.{cand_id}": 0}
+        }
+    )
+    return {"candidate": new_cand}
 
 
 @app.post("/api/polls/{code}/close")
