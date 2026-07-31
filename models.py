@@ -47,6 +47,7 @@ class SuggestRequest(BaseModel):
     who: Optional[str] = ""
     count: int = 3
     concurrency_control: bool = True
+    dislikes: Optional[str] = ""        # comma-separated dislikes/allergies to filter out
 
 
 class HistoryIn(BaseModel):
@@ -69,8 +70,20 @@ class PollCreateRequest(BaseModel):
     area: Optional[str] = ""
     variety: Optional[int] = 1
     concurrency_control: bool = True
+    dislikes: Optional[str] = ""
 
 
 class VoteRequest(BaseModel):
     candidate_id: str
     who: str
+
+
+class WriteInRequest(BaseModel):
+    place_id: str
+    item_id: str
+    place_name: str
+    item_name: str
+    price: float
+    people: int
+    who: str
+
