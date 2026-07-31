@@ -62,10 +62,11 @@ def _recent_places(days=7, who=""):
     return out
 
 
-def generate_suggestions(budget: float, people: int, preference: str = "", additional_info: str = "", area: str = "", variety: int = 1, who: str = "", count: int = 3, concurrency_control: bool = True):
+def generate_suggestions(budget: float, people: int, preference: str = "", additional_info: str = "", area: str = "", variety: int = 1, who: str = "", count: int = 3, concurrency_control: bool = True, dislikes: str = ""):
     preference = (preference or "").strip().lower()
     additional_info = (additional_info or "").strip().lower()
     keywords = [w for w in additional_info.replace(",", " ").split() if len(w) > 2]
+    dislikes_list = [d.strip().lower() for d in (dislikes or "").split(",") if d.strip()]
 
     recent = _recent_eaten_map(30, who)
     recently_eaten_places = _recent_places(7, who) if concurrency_control else set()
@@ -107,12 +108,28 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
         
         combos = []
         max_size = min(len(items), max(people + 2, 3))
+        
+        # Count total estimated combinations to determine step size
+        total_combos = 0
         for size in range(1, max_size + 1):
-            combos.extend(list(itertools.combinations_with_replacement(items, size)))
-
-        if len(combos) > 120:
-            step = max(1, len(combos) // 120)
-            combos = combos[::step][:120]
+            total_combos += math.comb(len(items) + size - 1, size)
+            
+        step = max(1, total_combos // 120)
+        
+        for size in range(1, max_size + 1):
+            if step == 1:
+                combos.extend(itertools.combinations_with_replacement(items, size))
+            else:
+                idx = 0
+                for combo in itertools.combinations_with_replacement(items, size):
+                    if idx % step == 0:
+                        combos.append(combo)
+                        if len(combos) >= 120:
+                            break
+                    idx += 1
+            if len(combos) >= 120:
+                combos = combos[:120]
+                break
 
         for combo in combos:
             # Option B: Bundle mandatory paired items
@@ -124,6 +141,22 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
                 if paired_id and paired_id in items_by_id and paired_id not in bundle_item_ids:
                     final_bundle.append(items_by_id[paired_id])
                     bundle_item_ids.add(paired_id)
+            # Exclusions filter
+            has_dislike = False
+            for it in final_bundle:
+                haystack_item = " ".join([
+                    it["item_name"] or "",
+                    it["category"] or "",
+                    it["tags"] or ""
+                ]).lower()
+                for dl in dislikes_list:
+                    if dl in haystack_item:
+                        has_dislike = True
+                        break
+                if has_dislike:
+                    break
+            if has_dislike:
+                continue
 
             # Problem A: Standard meal must contain at least 1 Main Course
             if not is_specific_snack_or_dessert:
@@ -219,6 +252,10 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
     by_place = defaultdict(list)
     for c in candidates:
         by_place[c["place_id"]].append(c)
+
+    # Sort candidates of each place by score in descending order
+    for pid in by_place:
+        by_place[pid].sort(key=lambda x: x["score"], reverse=True)
 
     # Sort places by their best randomized combo score
     sorted_place_ids = sorted(by_place.keys(), key=lambda pid: by_place[pid][0]["score"], reverse=True)
