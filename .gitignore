@@ -6,3 +6,5 @@ food_decider.db
 .venv/
 env/
 venv/
+.pytest_cache/
+
