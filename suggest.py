@@ -160,7 +160,7 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
 
             # Problem A: Standard meal must contain at least 1 Main Course
             if not is_specific_snack_or_dessert:
-                has_main = any(it.get("meal_role", "main") == "main" for it in final_bundle)
+                has_main = any((it.get("meal_role") or "main") == "main" for it in final_bundle)
                 if not has_main:
                     continue
 
@@ -175,7 +175,7 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
             counts = Counter(item_names)
             combo_item_name = " + ".join(f"{count}x {name}" if count > 1 else name for name, count in counts.items())
 
-            avg_rating = sum(it.get("rating", 0) for it in final_bundle) / len(final_bundle)
+            avg_rating = sum(it.get("rating") or 0 for it in final_bundle) / len(final_bundle)
             categories = " ".join(set(it["category"] or "" for it in final_bundle))
             tags = " ".join(set(it["tags"] or "" for it in final_bundle))
 
