@@ -214,8 +214,8 @@ def pull_all():
                        meal_role=excluded.meal_role, paired_item_id=excluded.paired_item_id""",
                     (item["id"], item.get("place_id"), item.get("name"), item.get("price"),
                      item.get("category"), item.get("tags"), item.get("created_at"),
-                     item.get("updated_at"), item.get("deleted", 0), item.get("rating", 0),
-                     item.get("meal_role", "main"), item.get("paired_item_id", "")),
+                     item.get("updated_at"), item.get("deleted") or 0, item.get("rating") or 0,
+                     item.get("meal_role") or "main", item.get("paired_item_id") or ""),
                 )
                 pulled += 1
 
