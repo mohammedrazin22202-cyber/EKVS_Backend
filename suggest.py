@@ -63,7 +63,7 @@ def _recent_places(days=7, who=""):
 
 
 def generate_suggestions(budget: float, people: int, preference: str = "", additional_info: str = "", area: str = "", variety: int = 1, who: str = "", count: int = 3, concurrency_control: bool = True, dislikes: str = ""):
-    preference = (preference or "").strip().lower()
+    pref_list = [p.strip().lower() for p in (preference or "").split(",") if p.strip()]
     additional_info = (additional_info or "").strip().lower()
     keywords = [w for w in additional_info.replace(",", " ").split() if len(w) > 2]
     dislikes_list = [d.strip().lower() for d in (dislikes or "").split(",") if d.strip()]
@@ -95,8 +95,7 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
             continue
         place_items[row["place_id"]].append(dict(row))
 
-    pref_lower = (preference or "").strip().lower()
-    is_specific_snack_or_dessert = pref_lower in ["dessert", "sweet", "snack", "light", "street food", "drink", "beverage"]
+    is_specific_snack_or_dessert = any(p in ["dessert", "sweet", "snack", "light", "street food", "drink", "beverage"] for p in pref_list)
 
     candidates = []
     for place_id, items in place_items.items():
@@ -192,8 +191,9 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
             ]).lower()
 
             # Preference match
-            if pref_lower and pref_lower in haystack:
-                base_score += 35
+            for pref in pref_list:
+                if pref in haystack:
+                    base_score += 35
 
             # Keyword bonus
             for kw in keywords:
