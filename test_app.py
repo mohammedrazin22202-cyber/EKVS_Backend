@@ -34,7 +34,7 @@ def clean_db():
     yield
 
 def test_root():
-    response = client.get("/")
+    response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json()["status"] == "online"
 
@@ -321,6 +321,89 @@ def test_null_rating_suggestions():
     suggestions = resp.json()["suggestions"]
     assert len(suggestions) > 0
     assert suggestions[0]["place_id"] == place_id
+
+def test_multi_select_preferences():
+    place_resp = client.post("/api/places", json={"name": "Veg Spicy Cafe"})
+    place_id = place_resp.json()["id"]
+    # Add a veg spicy main item
+    client.post(f"/api/places/{place_id}/items", json={"name": "Paneer Tikka", "price": 150.0, "category": "veg", "tags": "spicy", "meal_role": "main"})
+    
+    # Suggest with multi preference: "veg,spicy"
+    resp = client.post("/api/suggest", json={
+        "budget": 200.0,
+        "people": 1,
+        "preference": "veg,spicy",
+        "concurrency_control": False
+    })
+    assert resp.status_code == 200
+    suggestions = resp.json()["suggestions"]
+    assert len(suggestions) > 0
+    assert "Paneer Tikka" in suggestions[0]["item_name"]
+
+
+def test_leaderboard():
+    # Clear history first
+    with db.get_conn() as conn:
+        conn.execute("DELETE FROM history")
+        
+    place_resp = client.post("/api/places", json={"name": "Diner"})
+    place_id = place_resp.json()["id"]
+    item_resp = client.post(f"/api/places/{place_id}/items", json={"name": "Burger", "price": 100.0})
+    item_id = item_resp.json()["id"]
+    
+    # Add eating history for two profiles
+    client.post("/api/history", json={
+        "place_id": place_id,
+        "item_id": item_id,
+        "people": 1,
+        "amount": 100.0,
+        "who": "Alice",
+        "budget": 120.0
+    })
+    
+    client.post("/api/history", json={
+        "place_id": place_id,
+        "item_id": item_id,
+        "people": 1,
+        "amount": 100.0,
+        "who": "Bob",
+        "budget": 150.0
+    })
+    
+    resp = client.get("/api/leaderboard")
+    assert resp.status_code == 200
+    leaderboard = resp.json()
+    assert len(leaderboard) == 2
+    
+    bobs_record = next(r for r in leaderboard if r["who"] == "Bob")
+    assert bobs_record["total_meals"] == 1
+    assert bobs_record["total_spent"] == 100.0
+    assert bobs_record["total_savings"] == 50.0
+
+
+@patch("database.get_mongo_db")
+def test_group_polls_chat(mock_get_mongo_db):
+    mock_db = MagicMock()
+    mock_get_mongo_db.return_value = mock_db
+    
+    poll_code = "1234"
+    poll_doc = {
+        "_id": poll_code,
+        "active": True,
+        "candidates": [],
+        "votes": {},
+        "chat": []
+    }
+    mock_db.polls.find_one.return_value = poll_doc
+    
+    resp = client.post(f"/api/polls/{poll_code}/chat", json={
+        "who": "MegaTron",
+        "message": "Hello friends!"
+    })
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "sent"
+    assert resp.json()["message"]["message"] == "Hello friends!"
+
 
 # Cleanup temporary database at the end of execution
 def test_cleanup():
