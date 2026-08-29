@@ -504,6 +504,24 @@ def vote_chat(code: str, req: ChatMessageRequest):
     return {"status": "sent", "message": msg}
 
 
+@app.get("/api/leaderboard")
+def get_leaderboard():
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT who, 
+                   COUNT(*) as total_meals, 
+                   SUM(amount) as total_spent, 
+                   SUM(CASE WHEN budget > amount THEN (budget - amount) ELSE 0 END) as total_savings
+            FROM history 
+            WHERE deleted = 0
+            GROUP BY who
+            ORDER BY total_meals DESC, total_spent DESC
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 # Mount frontend static files at root /
 frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
 if os.path.exists(frontend_dir):
