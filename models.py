@@ -87,3 +87,8 @@ class WriteInRequest(BaseModel):
     people: int
     who: str
 
+
+class ChatMessageRequest(BaseModel):
+    who: str
+    message: str
+

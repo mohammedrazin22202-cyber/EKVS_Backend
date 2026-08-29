@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 import random
 import database as db
-from models import PlaceIn, PlaceUpdate, ItemIn, ItemUpdate, SuggestRequest, HistoryIn, PollCreateRequest, VoteRequest, WriteInRequest
+from models import PlaceIn, PlaceUpdate, ItemIn, ItemUpdate, SuggestRequest, HistoryIn, PollCreateRequest, VoteRequest, WriteInRequest, ChatMessageRequest
 from suggest import generate_suggestions
 
 app = FastAPI(title="EKVS Food Decider API")
@@ -361,6 +361,7 @@ def create_poll(req: PollCreateRequest):
         "candidates": candidates,
         "votes": {c["id"]: 0 for c in candidates},
         "voted_users": [],
+        "chat": [],
         "active": True,
         "winner": None
     }
@@ -477,6 +478,30 @@ def close_poll(code: str):
         {"$set": {"active": False, "winner": winner_cand}}
     )
     return {"status": "closed", "winner": winner_cand}
+
+
+@app.post("/api/polls/{code}/chat")
+def vote_chat(code: str, req: ChatMessageRequest):
+    mdb = db.get_mongo_db()
+    if mdb is None:
+        raise HTTPException(400, "Mongo offline")
+    poll = mdb.polls.find_one({"_id": code})
+    if not poll:
+        raise HTTPException(404, "Poll room not found")
+    if not poll.get("active", True):
+        raise HTTPException(400, "This poll is already closed!")
+
+    msg = {
+        "who": req.who,
+        "message": req.message,
+        "timestamp": db.now_iso()
+    }
+    
+    mdb.polls.update_one(
+        {"_id": code},
+        {"$push": {"chat": msg}}
+    )
+    return {"status": "sent", "message": msg}
 
 
 # Mount frontend static files at root /
