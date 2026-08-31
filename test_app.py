@@ -1,7 +1,9 @@
 import os
+import io
 import sys
 import tempfile
 import pytest
+from pydantic import BaseModel
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch
 
@@ -404,6 +406,120 @@ def test_group_polls_chat(mock_get_mongo_db):
     assert resp.json()["status"] == "sent"
     assert resp.json()["message"]["message"] == "Hello friends!"
 
+
+class ChatMessageRequest(BaseModel):
+    who: str
+    message: str
+
+
+def test_csv_export_import():
+    # Add place and item in DB
+    place_resp = client.post("/api/places", json={"name": "CSV Diner", "area": "North", "notes": "Good food"})
+    place_id = place_resp.json()["id"]
+    client.post(f"/api/places/{place_id}/items", json={
+        "name": "Burger Combo", "price": 120.0, "category": "non-veg", "meal_role": "main", "tags": "fast-food"
+    })
+    
+    # 1. Export CSV
+    export_resp = client.get("/api/places/export")
+    assert export_resp.status_code == 200
+    csv_content = export_resp.text
+    assert "CSV Diner" in csv_content
+    assert "Burger Combo" in csv_content
+    assert "120.0" in csv_content
+    
+    # 2. Clear Database to verify import
+    with db.get_conn() as conn:
+        conn.execute("DELETE FROM items")
+        conn.execute("DELETE FROM places")
+        
+    # 3. Import CSV
+    import_file = io.BytesIO(csv_content.encode("utf-8"))
+    import_resp = client.post(
+        "/api/places/import",
+        files={"file": ("import_test.csv", import_file, "text/csv")}
+    )
+    assert import_resp.status_code == 200
+    assert import_resp.json()["imported_items"] == 1
+    
+    # 4. Verify import in DB
+    places_resp = client.get("/api/places")
+    assert len(places_resp.json()) == 1
+    assert places_resp.json()[0]["name"] == "CSV Diner"
+    
+    items_resp = client.get("/api/items")
+    assert len(items_resp.json()) == 1
+    assert items_resp.json()[0]["name"] == "Burger Combo"
+    assert items_resp.json()[0]["price"] == 120.0
+
+
+@patch("database.get_mongo_db")
+def test_dictator_mode(mock_get_mongo_db):
+    mock_db = MagicMock()
+    mock_get_mongo_db.return_value = mock_db
+    
+    poll_code = "4321"
+    poll_doc = {
+        "_id": poll_code,
+        "active": True,
+        "candidates": [
+            {"id": "cand0", "item_name": "Dish A", "place_name": "Place X", "price_per_person": 50, "expected_amount": 100, "score": 100}
+        ],
+        "votes": {"cand0": 0},
+        "voted_users": ["Alice", "Bob"],
+        "chat": [],
+        "dictator": None
+    }
+    mock_db.polls.find_one.return_value = poll_doc
+    
+    # Select Dictator
+    resp = client.post(f"/api/polls/{poll_code}/dictator")
+    assert resp.status_code == 200
+    dictator = resp.json()["dictator"]
+    assert dictator in ["Alice", "Bob"]
+    
+    # Dictator Closes Poll with winner
+    poll_doc["dictator"] = dictator
+    resp = client.post(f"/api/polls/{poll_code}/dictator_close", json={
+        "candidate_id": "cand0",
+        "who": dictator
+    })
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "closed"
+    assert resp.json()["winner"]["id"] == "cand0"
+    
+    # Non-dictator trying to close should fail
+    non_dictator = "Bob" if dictator == "Alice" else "Alice"
+    resp = client.post(f"/api/polls/{poll_code}/dictator_close", json={
+        "candidate_id": "cand0",
+        "who": non_dictator
+    })
+    assert resp.status_code == 400
+
+
+@patch("database.get_mongo_db")
+def test_poll_websocket(mock_get_mongo_db):
+    mock_db = MagicMock()
+    mock_get_mongo_db.return_value = mock_db
+    
+    poll_code = "9999"
+    poll_doc = {
+        "_id": poll_code,
+        "active": True,
+        "candidates": [],
+        "votes": {},
+        "chat": []
+    }
+    mock_db.polls.find_one.return_value = poll_doc
+    
+    # Test WebSocket connection and message receipt
+    with client.websocket_connect(f"/ws/polls/{poll_code}") as websocket:
+        data = websocket.receive_json()
+        assert data["type"] == "poll_update"
+        assert data["poll"]["code"] == poll_code
+
+
+import io
 
 # Cleanup temporary database at the end of execution
 def test_cleanup():
