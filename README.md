@@ -41,3 +41,12 @@ To host this backend on **Render**:
    - `MONGO_DB_NAME` (`food_decider`)
    - `DEVICE_OWNER` (`server`)
 6. Deploy the web service! Your backend will be available at `https://<your-app-name>.onrender.com`.
+
+---
+
+## 🧪 Running Tests
+
+To run the automated test suite, execute:
+```bash
+python -m pytest test_app.py
+```
