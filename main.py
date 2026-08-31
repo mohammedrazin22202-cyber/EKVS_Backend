@@ -629,6 +629,9 @@ async def websocket_endpoint(websocket: WebSocket, code: str):
 
 @app.get("/api/places/export")
 def export_inventory():
+    """
+    Streams the entire restaurant and menu database inventory as a CSV file.
+    """
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["place_name", "place_area", "place_notes", "item_name", "item_price", "item_category", "item_meal_role", "item_tags", "item_rating"])
