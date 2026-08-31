@@ -17,6 +17,7 @@ import database as db
 from models import PlaceIn, PlaceUpdate, ItemIn, ItemUpdate, SuggestRequest, HistoryIn, PollCreateRequest, VoteRequest, WriteInRequest, ChatMessageRequest, DictatorCloseRequest
 from suggest import generate_suggestions
 
+# EKVS Food Decider API Server Setup
 app = FastAPI(title="EKVS Food Decider API")
 
 # Enable CORS for cross-origin requests from Vercel or local frontend
