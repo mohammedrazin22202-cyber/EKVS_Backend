@@ -190,6 +190,26 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
                 place_name or "", cuisine or "", area_val or "", place_notes or "",
             ]).lower()
 
+            # Balanced diet / Combo variety bonus
+            has_main = any((it.get("meal_role") or "main") == "main" for it in final_bundle)
+            has_side = any(it.get("meal_role") == "side" for it in final_bundle)
+            has_bev = any(it.get("meal_role") == "beverage" for it in final_bundle)
+            
+            diversity_bonus = 0
+            if has_main and has_side:
+                diversity_bonus += 15
+            if has_main and has_bev:
+                diversity_bonus += 15
+            if has_main and has_side and has_bev:
+                diversity_bonus += 15 # combo bonus
+            base_score += diversity_bonus
+
+            # Penalize duplicate main courses if eating alone
+            if people == 1:
+                mains = [it["item_id"] for it in final_bundle if (it.get("meal_role") or "main") == "main"]
+                if len(mains) > len(set(mains)):
+                    base_score -= 25
+
             # Preference match
             for pref in pref_list:
                 if pref in haystack:
