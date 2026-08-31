@@ -92,3 +92,9 @@ class ChatMessageRequest(BaseModel):
     who: str
     message: str
 
+
+class DictatorCloseRequest(BaseModel):
+    candidate_id: str
+    who: str
+
+
