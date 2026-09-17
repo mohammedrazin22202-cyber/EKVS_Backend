@@ -143,6 +143,10 @@ def init_db():
             conn.execute("ALTER TABLE items ADD COLUMN paired_item_id TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE history ADD COLUMN paid_by TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
 
 # ---------------------------------------------------------------------------
