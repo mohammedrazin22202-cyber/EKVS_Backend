@@ -232,6 +232,7 @@ def suggest(req: SuggestRequest):
         count=req.count,
         concurrency_control=req.concurrency_control,
         dislikes=req.dislikes or "",
+        time_of_day=req.time_of_day or "auto",
     )
     if not results:
         raise HTTPException(404, "Nothing fits that budget for that many people. Try raising the budget.")
@@ -252,6 +253,7 @@ def suggest_upgrade(req: SuggestRequest):
         count=40,
         concurrency_control=req.concurrency_control,
         dislikes=req.dislikes or "",
+        time_of_day=req.time_of_day or "auto",
     )
     upgrade_candidates = [c for c in results if c["expected_amount"] > req.budget]
     if not upgrade_candidates:
@@ -336,15 +338,75 @@ def add_history(entry: HistoryIn):
     hid = db.new_id()
     ts = db.now_iso()
     eaten_on = entry.eaten_on or ts
+    paid_by_val = entry.paid_by or entry.who or db.DEVICE_OWNER
     with db.get_conn() as conn:
         conn.execute(
-            """INSERT INTO history (id, place_id, place_name, item_id, item_name, people, amount, who, eaten_on, created_at, synced, budget)
-               VALUES (?,?,?,?,?,?,?,?,?,?,0,?)""",
+            """INSERT INTO history (id, place_id, place_name, item_id, item_name, people, amount, who, eaten_on, created_at, synced, budget, paid_by)
+               VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?)""",
             (hid, entry.place_id, place_name, entry.item_id, formatted_name,
-             entry.people, entry.amount, entry.who or db.DEVICE_OWNER, eaten_on, ts, entry.budget or 0.0),
+             entry.people, entry.amount, entry.who or db.DEVICE_OWNER, eaten_on, ts, entry.budget or 0.0, paid_by_val),
         )
     db.try_push_single("history", "history", hid)
     return {"id": hid, "status": "created"}
+
+
+@app.get("/api/ledger")
+def get_ledger():
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM history WHERE deleted = 0 ORDER BY eaten_on DESC"
+        ).fetchall()
+    
+    from collections import defaultdict
+    paid_totals = defaultdict(float)
+    consumed_totals = defaultdict(float)
+    transactions = []
+
+    for r in rows:
+        row = dict(r)
+        amount = float(row.get("amount") or 0.0)
+        who_str = (row.get("who") or "Anonymous").strip()
+        paid_by = (row.get("paid_by") or who_str).strip()
+        
+        # Split names from who_str if comma, &, or 'and' separated
+        raw_names = [n.strip() for n in who_str.replace(" & ", ",").replace(" and ", ",").split(",") if n.strip()]
+        if not raw_names:
+            raw_names = [who_str]
+
+        per_person = round(amount / len(raw_names), 2)
+        paid_totals[paid_by] += amount
+
+        for name in raw_names:
+            consumed_totals[name] += per_person
+
+        transactions.append({
+            "id": row["id"],
+            "place_name": row["place_name"],
+            "item_name": row["item_name"],
+            "amount": amount,
+            "paid_by": paid_by,
+            "participants": raw_names,
+            "per_person": per_person,
+            "eaten_on": row["eaten_on"]
+        })
+
+    all_users = set(paid_totals.keys()) | set(consumed_totals.keys())
+    balances = []
+    for user in sorted(all_users):
+        paid = round(paid_totals[user], 2)
+        consumed = round(consumed_totals[user], 2)
+        net = round(paid - consumed, 2)
+        balances.append({
+            "user": user,
+            "total_paid": paid,
+            "total_consumed": consumed,
+            "net_balance": net
+        })
+
+    return {
+        "balances": balances,
+        "recent_transactions": transactions[:20]
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +456,7 @@ async def create_poll(req: PollCreateRequest):
         count=3,
         concurrency_control=req.concurrency_control,
         dislikes=req.dislikes or "",
+        time_of_day=req.time_of_day or "auto",
     )
     if not candidates:
         raise HTTPException(404, "No menu items fit this budget to generate poll candidates.")
@@ -403,6 +466,11 @@ async def create_poll(req: PollCreateRequest):
         c["id"] = f"cand{idx}"
 
     room_code = str(random.randint(1000, 9999))
+    expires_at = None
+    if req.duration_seconds and req.duration_seconds > 0:
+        from datetime import timedelta
+        expires_at = (datetime.now(timezone.utc) + timedelta(seconds=req.duration_seconds)).isoformat()
+
     poll = {
         "_id": room_code,
         "candidates": candidates,
@@ -411,7 +479,9 @@ async def create_poll(req: PollCreateRequest):
         "chat": [],
         "active": True,
         "winner": None,
-        "dictator": None
+        "dictator": None,
+        "duration_seconds": req.duration_seconds,
+        "expires_at": expires_at
     }
     
     mdb.polls.insert_one(poll)
