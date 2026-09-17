@@ -62,11 +62,24 @@ def _recent_places(days=7, who=""):
     return out
 
 
-def generate_suggestions(budget: float, people: int, preference: str = "", additional_info: str = "", area: str = "", variety: int = 1, who: str = "", count: int = 3, concurrency_control: bool = True, dislikes: str = ""):
+def generate_suggestions(budget: float, people: int, preference: str = "", additional_info: str = "", area: str = "", variety: int = 1, who: str = "", count: int = 3, concurrency_control: bool = True, dislikes: str = "", time_of_day: str = "auto"):
     pref_list = [p.strip().lower() for p in (preference or "").split(",") if p.strip()]
     additional_info = (additional_info or "").strip().lower()
     keywords = [w for w in additional_info.replace(",", " ").split() if len(w) > 2]
     dislikes_list = [d.strip().lower() for d in (dislikes or "").split(",") if d.strip()]
+
+    # Resolve time-of-day slot
+    active_slot = (time_of_day or "auto").strip().lower()
+    if active_slot == "auto" or not active_slot:
+        current_hour = datetime.now().hour
+        if 5 <= current_hour < 11:
+            active_slot = "breakfast"
+        elif 11 <= current_hour < 16:
+            active_slot = "lunch"
+        elif 16 <= current_hour < 19:
+            active_slot = "snack"
+        else:
+            active_slot = "dinner"
 
     recent = _recent_eaten_map(30, who)
     recently_eaten_places = _recent_places(7, who) if concurrency_control else set()
@@ -219,6 +232,27 @@ def generate_suggestions(budget: float, people: int, preference: str = "", addit
             for kw in keywords:
                 if kw in haystack:
                     base_score += 12
+
+            # Time-of-day contextual bonus & penalty
+            if active_slot == "breakfast":
+                breakfast_words = ["idli", "dosa", "puri", "poori", "pongal", "tea", "coffee", "tiffin", "vada", "egg", "sandwich", "toast"]
+                heavy_words = ["biryani", "biriyani", "parotta", "fried rice", "noodles", "shawarma", "gravy"]
+                if any(w in haystack for w in breakfast_words):
+                    base_score += 35
+                if any(w in haystack for w in heavy_words):
+                    base_score -= 40
+            elif active_slot == "lunch":
+                lunch_words = ["meals", "thali", "rice", "biryani", "biriyani", "combo", "curry"]
+                if any(w in haystack for w in lunch_words) or has_main:
+                    base_score += 25
+            elif active_slot == "snack":
+                snack_words = ["snack", "puff", "chaat", "samosa", "roll", "juice", "tea", "coffee", "bhel", "pani puri", "ice cream", "shake", "soda"]
+                if any(w in haystack for w in snack_words) or has_side or has_bev:
+                    base_score += 35
+            elif active_slot == "dinner":
+                dinner_words = ["parotta", "noodles", "fried rice", "shawarma", "dosa", "roti", "naan", "curry", "gravy"]
+                if any(w in haystack for w in dinner_words):
+                    base_score += 25
 
             # Budget efficiency
             utilization = expected_amount / budget
