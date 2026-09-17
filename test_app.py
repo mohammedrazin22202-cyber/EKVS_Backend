@@ -521,6 +521,79 @@ def test_poll_websocket(mock_get_mongo_db):
 
 import io
 
+def test_suggest_time_of_day():
+    # Setup a place and breakfast + lunch items
+    p_resp = client.post("/api/places", json={"name": "Tiffin House", "area": "Center"})
+    pid = p_resp.json()["id"]
+    client.post(f"/api/places/{pid}/items", json={"name": "Ghee Dosa", "price": 50.0, "category": "veg", "tags": "breakfast,tiffin", "meal_role": "main"})
+    client.post(f"/api/places/{pid}/items", json={"name": "Filter Coffee", "price": 25.0, "category": "drink", "tags": "hot,coffee", "meal_role": "beverage"})
+
+    resp = client.post("/api/suggest", json={
+        "budget": 100,
+        "people": 1,
+        "time_of_day": "breakfast"
+    })
+    assert resp.status_code == 200
+    res = resp.json()["suggestions"]
+    assert len(res) > 0
+    assert "Dosa" in res[0]["item_name"] or "Coffee" in res[0]["item_name"]
+
+
+def test_history_ledger():
+    # Add place and item
+    p_resp = client.post("/api/places", json={"name": "Biryani Point", "area": "East"})
+    pid = p_resp.json()["id"]
+    i_resp = client.post(f"/api/places/{pid}/items", json={"name": "Chicken Biryani", "price": 180.0, "category": "non-veg"})
+    iid = i_resp.json()["id"]
+
+    # History 1: Alice paid 360 for Alice and Bob
+    h1 = client.post("/api/history", json={
+        "place_id": pid,
+        "item_id": iid,
+        "people": 2,
+        "amount": 360.0,
+        "who": "Alice, Bob",
+        "paid_by": "Alice"
+    })
+    assert h1.status_code == 200
+
+    ledger_resp = client.get("/api/ledger")
+    assert ledger_resp.status_code == 200
+    data = ledger_resp.json()
+    assert "balances" in data
+    assert len(data["balances"]) >= 2
+    alice_bal = next((b for b in data["balances"] if b["user"] == "Alice"), None)
+    bob_bal = next((b for b in data["balances"] if b["user"] == "Bob"), None)
+    assert alice_bal is not None
+    assert bob_bal is not None
+    assert alice_bal["net_balance"] > 0 # Alice is owed money (+180)
+    assert bob_bal["net_balance"] < 0   # Bob owes money (-180)
+
+
+@patch("database.get_mongo_db")
+def test_create_speed_poll(mock_get_mongo_db):
+    mock_db = MagicMock()
+    mock_get_mongo_db.return_value = mock_db
+    
+    # Ensure at least 1 item exists
+    p_resp = client.post("/api/places", json={"name": "Speed Cafe", "area": "West"})
+    pid = p_resp.json()["id"]
+    client.post(f"/api/places/{pid}/items", json={"name": "Sandwich", "price": 60.0, "category": "veg"})
+
+    poll_req = {
+        "budget": 100,
+        "people": 1,
+        "duration_seconds": 60,
+        "time_of_day": "snack"
+    }
+    resp = client.post("/api/polls", json=poll_req)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "code" in data
+    assert data["poll"]["duration_seconds"] == 60
+    assert data["poll"]["expires_at"] is not None
+
+
 # Cleanup temporary database at the end of execution
 def test_cleanup():
     try:
