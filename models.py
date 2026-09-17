@@ -48,6 +48,7 @@ class SuggestRequest(BaseModel):
     count: int = 3
     concurrency_control: bool = True
     dislikes: Optional[str] = ""        # comma-separated dislikes/allergies to filter out
+    time_of_day: Optional[str] = "auto" # "auto", "breakfast", "lunch", "snack", "dinner"
 
 
 class HistoryIn(BaseModel):
@@ -60,6 +61,7 @@ class HistoryIn(BaseModel):
     budget: Optional[float] = 0.0
     place_name: Optional[str] = ""
     item_name: Optional[str] = ""
+    paid_by: Optional[str] = ""      # who paid the bill (for split balance ledger)
 
 
 class PollCreateRequest(BaseModel):
@@ -71,6 +73,8 @@ class PollCreateRequest(BaseModel):
     variety: Optional[int] = 1
     concurrency_control: bool = True
     dislikes: Optional[str] = ""
+    time_of_day: Optional[str] = "auto"
+    duration_seconds: Optional[int] = None # e.g. 60 or 120 for speed polls
 
 
 class VoteRequest(BaseModel):
