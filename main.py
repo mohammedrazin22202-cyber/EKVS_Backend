@@ -665,7 +665,8 @@ async def dictator_close_poll(code: str, req: DictatorCloseRequest):
         raise HTTPException(404, "Poll room not found")
     if not poll.get("active", True):
         raise HTTPException(400, "This poll is already closed!")
-    if poll.get("dictator") != req.who:
+    dictator = poll.get("dictator", "")
+    if not dictator or dictator.strip().lower() != req.who.strip().lower():
         raise HTTPException(400, f"Only the chosen Dictator ({poll.get('dictator')}) can close this poll!")
         
     winner_cand = next((c for c in poll["candidates"] if c["id"] == req.candidate_id), None)
